@@ -19,7 +19,22 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [currentCategory, setCurrentCategory] = useState('all');
     const [sortBy, setSortBy] = useState('votesInteresting');
+    const [user, setUser] = useState(null);
+    const [showAuth, setShowAuth] = useState(false);
 
+    useEffect(() => {
+        // Check active sessions and sets the user
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
+        });
+
+        // Listen for changes on auth state (sign in, sign out, etc.)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
 
     useEffect(
         function () {
@@ -42,12 +57,19 @@ function App() {
         },
         [currentCategory, sortBy]
     );
+
     return (
         <>
-            <Header showForm={showForm} setShowForm={setShowForm} />
+            <Header 
+                showForm={showForm} 
+                setShowForm={setShowForm} 
+                user={user}
+                setShowAuth={setShowAuth}
+            />
+
+            {showAuth && <AuthForm setShowAuth={setShowAuth} />}
 
             <div className="sort-buttons">
-
                 <button className='btn btn-sort' onClick={() => setSortBy('votesInteresting')}>
                     🔥 Most Upvoted
                 </button>
@@ -61,7 +83,7 @@ function App() {
                     🛑 Most False
                 </button>
             </div>
-            {showForm && (
+            {showForm && user && (
                 <NewFactForm setFacts={setFacts} setShowForm={setShowForm} />
             )}
             <main className='main'>
@@ -74,11 +96,85 @@ function App() {
     );
 }
 
+function AuthForm({ setShowAuth }) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSignUp, setIsSignUp] = useState(false);
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        setIsLoading(true);
+
+        try {
+            if (isSignUp) {
+                const { error } = await supabase.auth.signUp({
+                    email,
+                    password,
+                });
+                if (error) throw error;
+            } else {
+                const { error } = await supabase.auth.signInWithPassword({
+                    email,
+                    password,
+                });
+                if (error) throw error;
+            }
+            
+            // If we get here, authentication was successful
+            setShowAuth(false);
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            setIsLoading(false);
+        }
+    }
+
+    return (
+        <div className="auth-form-container">
+            <button 
+                className="btn-close" 
+                onClick={() => setShowAuth(false)}
+                disabled={isLoading}
+            >
+                ✕
+            </button>
+            <form className="auth-form" onSubmit={handleSubmit}>
+                <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
+                <input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isLoading}
+                />
+                <input
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isLoading}
+                />
+                <button className="btn btn-large" disabled={isLoading}>
+                    {isLoading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Login'}
+                </button>
+                <button
+                    type="button"
+                    className="btn btn-large btn-link"
+                    onClick={() => setIsSignUp(!isSignUp)}
+                >
+                    {isSignUp ? 'Already have an account? Login' : 'Need an account? Sign Up'}
+                </button>
+            </form>
+        </div>
+    );
+}
+
 function Loader() {
     return <p className='message'>Loading...</p>;
 }
 
-function Header({ showForm, setShowForm }) {
+function Header({ showForm, setShowForm, user, setShowAuth }) {
     const appTitle = 'Today I learned!';
 
     return (
@@ -87,11 +183,27 @@ function Header({ showForm, setShowForm }) {
                 <img src='logo.png' alt='Today I learned logo' />
                 <h1>{appTitle}</h1>
             </div>
-            <button
-                className='btn btn-large btn-open'
-                onClick={() => setShowForm(showForm => !showForm)}>
-                {showForm ? 'close' : 'Share a fact'}
-            </button>
+            {user ? (
+                <div className="user-info">
+                    <span>Welcome, {user.email}</span>
+                    <button
+                        className='btn btn-large btn-open'
+                        onClick={() => setShowForm(showForm => !showForm)}>
+                        {showForm ? 'close' : 'Share a fact'}
+                    </button>
+                    <button
+                        className='btn btn-large btn-logout'
+                        onClick={() => supabase.auth.signOut()}>
+                        Logout
+                    </button>
+                </div>
+            ) : (
+                <button
+                    className='btn btn-large btn-open'
+                    onClick={() => setShowAuth(true)}>
+                    Login
+                </button>
+            )}
         </header>
     );
 }
